@@ -11,4 +11,9 @@ This setting can be modified to control an exhaust fan instead, then the signal 
 
  A complete guide on the project can be found here: 
  https://hackmd.io/@0eE0qrw8QBKeNwBeNTenTQ/ry1lWNvUC
+
+ Imports used in the project come from these repositories: 
+
+ <a href "https://github.com/iot-lnu/applied-iot/blob/master/Pycom%20Micropython%20(esp32)/network-examples/mqtt_ubidots/mqtt.py">MQTTClient </a> and WifiConnection
+ 
  
