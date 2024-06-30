@@ -1,15 +1,14 @@
-import time                   # Allows use of time.sleep() for delays
-from mqtt import MQTTClient   # For use of MQTT protocol to talk to Adafruit IO
-import machine                # Interfaces with hardware components
-import micropython            # Needed to run any MicroPython code
-import random                 # Random number generator
-from machine import Pin       # Define pin
-from machine import Pin, PWM  # Used for the RG LED
-import keys                   # Contain all keys used here
+import time                   # Used for creating delays (time.sleep()) and handling timestamps.
+from mqtt import MQTTClient   # Implements the MQTT (Message Queuing Telemetry Transport) protocol client. 
+import machine                # Interfaces with hardware (Raspberry Pi Pico W in this case)Essential for controlling GPIO pins, managing interrupts, and accessing low-level hardware features.
+import micropython            # Needed to run any MicroPython code.
+from machine import Pin       # Defines and manages the GPIO pins in Raspberry Pi Pico W.
+from machine import Pin, PWM  # Implements Pulse Width Modulation (PWM) for controlling analog components. Used for the RG LED
+import keys                   # Used for sensitive information or configuration settings.Contain all keys (passwords, credentials, etc) used here
 import wifiConnection         # Contains functions to connect/disconnect from WiFi 
-import dht                    # dht temperature and humidity sensor
-import nightFlushLogic         # importing the code
-import uos
+import dht                    # Interfaces with DHT (Digital Humidity and Temperature) sensors.
+import nightFlushLogic        # custom application logic  for night flush
+import uos                    # Enables file and directory operations (used for saving data to memory)
 
 #Declaring global variables for house climatic automation
 latestOutTemp = 23.0
@@ -18,9 +17,28 @@ forecast = 23.0
 windowIsOpen = False
 actionMsg = ""
 
+#RG LED
+LED_Pin_Red = 22
+LED_Pin_Green = 26
+red_pwm_pin = PWM(Pin(LED_Pin_Red, mode=Pin.OUT)) 
+green_pwm_pin = PWM(Pin(LED_Pin_Green, mode=Pin.OUT)) 
+
+# RG LED Settings
+red_pwm_pin.freq(1_000)
+green_pwm_pin.freq(1_000)
+
+# BEGIN SETTINGS
+RANDOMS_INTERVAL = 300000    # milliseconds
+last_random_sent_ticks = 0  # milliseconds
+led = Pin("LED", Pin.OUT)   # led pin initialization for Raspberry Pi Pico W
+led.off()
+#Variables for the temperature
+tempSensor = dht.DHT11(machine.Pin(27))     # DHT11 Constructor 
+
 """
-Information about door status and weather forecast is sent sporadically therefore
-we save it to memory and load it, this in case we reset the Raspberry pi pico.
+Saving information that is sent / received sporadically: 
+we save it to memory and load it when the device reinitializes 
+due to power outage or reset.
 """
 def saveForecast(data, filename = "savedForecast.txt"):
     with open(filename, "w") as file:
@@ -38,7 +56,8 @@ def saveWindowsStatus (data, filename = "savedWindowsStatus.txt"):
     with open(filename, "w") as file:
         file.write(str(data))
 
-#Default is set to False (closed) so we only load if it is True (open)
+# Default when initializing is set to False (closed) so we only load if it is True (open)
+# A better approach (future for future development is to check the latest message registered)
 def loadWindowsStatus (filename = "savedWindowsStatus.txt"):
     global windowIsOpen
     try: 
@@ -49,17 +68,24 @@ def loadWindowsStatus (filename = "savedWindowsStatus.txt"):
     except (OSError, ValueError):
         #File not found or read error. 
         return 
+    
+def saveActionMsg(data, filename = "actionMsg.txt"):
+    with open(filename, "w") as file:
+        file.write(str(data))
 
-
-# BEGIN SETTINGS
+def loadActionMsg(filename = "actionMsg.txt"):
+    global actionMsg
+    try: 
+        with open(filename, "r") as file:
+            actionMsg = file.read()
+    except (OSError, ValueError):
+        #File not found or read error. 
+        return 
+    
+#Load variables saved in memory
 loadForecast()
 loadWindowsStatus()
-RANDOMS_INTERVAL = 300000    # milliseconds
-last_random_sent_ticks = 0  # milliseconds
-led = Pin("LED", Pin.OUT)   # led pin initialization for Raspberry Pi Pico W
-led.off()
-#Variables for the temperature
-tempSensor = dht.DHT11(machine.Pin(27))     # DHT11 Constructor 
+loadActionMsg()
 
 # Try WiFi Connection, write error code if exception happens
 try:
@@ -72,14 +98,20 @@ except Exception as e:
 # Use the MQTT protocol to connect to Adafruit IO
 client = MQTTClient(keys.AIO_CLIENT_ID, keys.AIO_SERVER, keys.AIO_PORT, keys.AIO_USER, keys.AIO_KEY)
 
+"""When a message is received, we check from which topic, then proceed to 
+decode and save the variable. The Red-green LED is used to visually signal
+when the messages arrive and which type of message is being received
+this is useful when testing, meaning the led is optional """
 def on_message(topic, msg):
-    print("message received from: ", topic)
+    #Remove comment out "#" to test it:
+    #print("message received from: ", topic) 
     #decode byte string from the msg:
     if topic == b'h_kenshin21/feeds/smhi':
         decoded_string = msg.decode('utf-8')
         global forecast 
         forecast = float(decoded_string)
         saveForecast(forecast)
+        #Red LED fades in and out
         for duty in range(0,65_536, 1):
             red_pwm_pin.duty_u16(duty)
         for duty in range(65_536,0, -1):
@@ -90,6 +122,7 @@ def on_message(topic, msg):
         decoded_string = msg.decode('utf-8')
         global latestOutTemp 
         latestOutTemp = float(decoded_string)
+        #Green LED fades in and out
         for duty in range(0,65_536, 1):
             green_pwm_pin.duty_u16(duty)
         for duty in range(65_536,0, -1):
@@ -104,9 +137,10 @@ def on_message(topic, msg):
         else:
             windowIsOpen = False
         saveWindowsStatus(decoded_string)
-        for duty in range(0,65_536, 1):
+        #Red LED fades in and out then green LED fades in and out
+        for duty in range(0,65_536, 5):
             red_pwm_pin.duty_u16(duty)
-        for duty in range(65_536,0, -1):
+        for duty in range(65_536,0, -5):
             red_pwm_pin.duty_u16(duty)
         for duty in range(0,65_536, 5):
             green_pwm_pin.duty_u16(duty)
@@ -115,19 +149,13 @@ def on_message(topic, msg):
         print("Window is open: ", windowIsOpen)
 
     return
-# Set the callback function
+"""Set the callback function, basically it says
+"run the function on_message() when a message arrives
+this is defined in the imoported code from mqtt.py"""
 client.set_callback(on_message)
 
-#RG LED
-LED_Pin_Red = 22
-LED_Pin_Green = 26
-red_pwm_pin = PWM(Pin(LED_Pin_Red, mode=Pin.OUT)) 
-green_pwm_pin = PWM(Pin(LED_Pin_Green, mode=Pin.OUT)) 
-
-# RG LED Settings
-red_pwm_pin.freq(1_000)
-green_pwm_pin.freq(1_000)
-
+"""Gets temperature and humidity, returns both. 
+In python you can have one function return several variables """
 def getReadings():
     global latestInTemp
     try:
@@ -135,21 +163,24 @@ def getReadings():
         innerTemp = tempSensor.temperature()
         latestInTemp = innerTemp
         innerHumidity = tempSensor.humidity()
+        #Remove comment out "#" to test it: 
         #print("Inner temperature is {} C and Humidity is {}%".format(innerTemp, innerHumidity))
         
     except Exception as error:
         print("Exception occurred", error)
-
     return innerTemp, innerHumidity
+
 # Checks which msg to send, send only if it is a new one (different from before)
 def checkActionMsg():
     global actionMsg
     oldMsg = actionMsg
-    print("---\nWindow is open = ", windowIsOpen)
+    #Remove comment out "#" to test it:
+    #print("---\nWindow is open = ", windowIsOpen)
     newMsg = nightFlushLogic.actionMessage(windowIsOpen, forecast,latestInTemp,latestOutTemp)
 
     if oldMsg != newMsg:
         actionMsg = newMsg
+        saveActionMsg(actionMsg)
         return newMsg
     return ""   
 
@@ -161,10 +192,12 @@ def sendActionMsg(feed):
     if newMsg:
         print("Publishing:\n{0} \nto: {1} ... ".format(newMsg, feed), end='')
         try:
-            client.publish(topic=feed, msg=newMsg)
+            client.publish(topic=feed, msg=newMsg.encode('utf-8'))
+            print("DONE")
         except Exception as e:
-            print("FAILED")
-
+            print("FAILED:", str(e))
+            
+            
 # Function to publish to Adafruit IO MQTT server at fixed interval
 def send_data(tempFeed, tempData, humFeed, humData):
     global last_random_sent_ticks
@@ -193,9 +226,9 @@ def connectAndSend():
     global client
     client.connect()
     # subscribe to weather data
-    client.subscribe(('h_kenshin21/feeds/smhi'))
-    client.subscribe(('h_kenshin21/feeds/outtemp'))
-    client.subscribe(('h_kenshin21/feeds/winisopen'))
+    client.subscribe(keys.AIO_SUBSCRIBE_TO_SMHI)
+    client.subscribe(keys.AIO_SUBSCRIBE_TO_OUTTEMP)
+    client.subscribe(keys.AIO_SUBSCRIBE_TO_WINSTATUS)
     
     try:                     # Code between try: and finally: may cause an error
                             # so ensure the client disconnects the server if
