@@ -2,22 +2,21 @@ import time                   # Allows use of time.sleep() for delays
 from mqtt import MQTTClient   # For use of MQTT protocol to talk to Adafruit IO
 import machine                # Interfaces with hardware components
 import micropython            # Needed to run any MicroPython code
-import random                 # Random number generator
 from machine import Pin       # Define pin
 import keys                   # Contain all keys used here
 import wifiConnection         # Contains functions to connect/disconnect from WiFi 
 import dht                    # dht temperature and humidity sensor
 
-client = None
 # BEGIN SETTINGS
-# These need to be change to suit your environment
-RANDOMS_INTERVAL = 300000    # milliseconds (10 min)
+client = None
+RANDOMS_INTERVAL = 300000   # milliseconds (5 min)
 last_random_sent_ticks = 0  # milliseconds
 led = Pin("LED", Pin.OUT)   # led pin initialization for Raspberry Pi Pico W
 led.off()
 #Variables for the temperature
 tempSensor = dht.DHT11(machine.Pin(27))     # DHT11 Constructor 
 
+#Reads temperature and humidity returns both variables
 def getReadings():
     try:
         tempSensor.measure()
@@ -36,11 +35,13 @@ def send_data(tempFeed, tempData, humFeed, humData):
     global RANDOMS_INTERVAL
 
     if ((time.ticks_ms() - last_random_sent_ticks) < RANDOMS_INTERVAL):
-        print((time.ticks_ms() - last_random_sent_ticks))
-        return; # Too soon since last one sent.
+        # If it is too soon since last one sent, goes back to the loop
+        print((time.ticks_ms() - last_random_sent_ticks), "Too soon")
+        return;
 
     print("Publishing:\n {0} degrees celcius to {1} and \n {2} percent humidity to {3}... ".format(tempData, tempFeed, humData, humFeed), end='')
     try:
+        print(tempFeed, tempData)
         client.publish(topic=tempFeed, msg=str(tempData))
         client.publish(topic=humFeed, msg=str(humData))
         print("DONE")
@@ -64,10 +65,10 @@ def connectAndSend():
     # Subscribed messages will be delivered to this callback
     client.connect()
     
-    try:                     # Code between try: and finally: may cause an error
+    try:                    # Code between try: and finally: may cause an error
                             # so ensure the client disconnects the server if
                             # that happens.
-        while True:              # Repeat this loop forever
+        while True:         # Repeat this loop forever
             tempData, humData = getReadings()
             print("attempting to send...")
             led.on()
@@ -82,5 +83,4 @@ def connectAndSend():
         wifiConnection.disconnect()
         print("Disconnected from Adafruit IO.")
         
-
 connectAndSend()
