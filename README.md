@@ -10,7 +10,7 @@ The setup needs indoor and outdoor temperature sensors, a sensor to check if the
 This setting can be modified to control an exhaust fan instead, then the signal can check the fans speed and adjust accordingly, maxing the speed durig night flush and minimizing it during hot summer days. 
 
  A complete guide on the project can be found here: 
- <a href "https://hackmd.io/@0eE0qrw8QBKeNwBeNTenTQ/ry1lWNvUC" >My Hackmd</a>
+ <a href ="https://hackmd.io/@0eE0qrw8QBKeNwBeNTenTQ/ry1lWNvUC" >My Hackmd</a>
 
 We need some external libraries, all are in the repository (so you can just copy-paste all to your own project) but the original code can be found in these repositories: 
 
