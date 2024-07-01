@@ -15,6 +15,6 @@ This setting can be modified to control an exhaust fan instead, then the signal 
 We need some external libraries, all are in the repository (so you can just copy-paste all to your own project) but the original code can be found in these repositories: 
 
 * <a href= "https://github.com/iot-lnu/applied-iot/blob/master/Pycom%20Micropython%20(esp32)/network-examples/mqtt_ubidots/mqtt.py" >MQTTClient </a>
-* wifiConnection: https://github.com/iot-lnu/pico-w/tree/main/network-examples/N1_WiFi_Connection 
+* <a href = "https://github.com/iot-lnu/pico-w/tree/main/network-examples/N1_WiFi_Connection"> wifiConnection</a>
  
  
