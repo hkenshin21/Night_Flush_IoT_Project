@@ -1,7 +1,7 @@
 import time                   # Used for creating delays (time.sleep()) and handling timestamps.
 from mqtt import MQTTClient   # Implements the MQTT (Message Queuing Telemetry Transport) protocol client. 
 import machine                # Interfaces with hardware (Raspberry Pi Pico W in this case)Essential for controlling GPIO pins, managing interrupts, and accessing low-level hardware features.
-import micropython            # Needed to run any MicroPython code.
+#import micropython            # Needed to run any MicroPython code.
 from machine import Pin       # Defines and manages the GPIO pins in Raspberry Pi Pico W.
 from machine import Pin, PWM  # Implements Pulse Width Modulation (PWM) for controlling analog components. Used for the RG LED
 import keys                   # Used for sensitive information or configuration settings.Contain all keys (passwords, credentials, etc) used here
@@ -16,6 +16,9 @@ latestInTemp = 23.0
 forecast = 23.0
 windowIsOpen = False
 actionMsg = ""
+client = None
+RANDOMS_INTERVAL = 300000    # milliseconds
+last_random_sent_ticks = 0  # milliseconds
 
 #RG LED
 LED_Pin_Red = 22
@@ -28,8 +31,6 @@ red_pwm_pin.freq(1_000)
 green_pwm_pin.freq(1_000)
 
 # BEGIN SETTINGS
-RANDOMS_INTERVAL = 300000    # milliseconds
-last_random_sent_ticks = 0  # milliseconds
 led = Pin("LED", Pin.OUT)   # led pin initialization for Raspberry Pi Pico W
 led.off()
 #Variables for the temperature
@@ -81,22 +82,79 @@ def loadActionMsg(filename = "actionMsg.txt"):
     except (OSError, ValueError):
         #File not found or read error. 
         return 
+
+#Defining different led signals 
+def ledSignal(signal):
+    #receiving data
+    #3 green fade in-out for Wifi
+    if signal == "connectedToWifi":
+        for _ in range(3):
+            for duty in range(0,65_536, 5):
+                green_pwm_pin.duty_u16(duty)
+            for duty in range(65_536,0, -5):
+                green_pwm_pin.duty_u16(duty)
     
+    elif signal == "noConnection":
+        for _ in range(4):
+            for duty in range(0,65_536, 1):
+                red_pwm_pin.duty_u16(duty)
+            for duty in range(65_536,0, -1):
+                red_pwm_pin.duty_u16(duty)
+
+    elif signal == "receiving":
+        for duty in range(0,65_536, 1):
+            green_pwm_pin.duty_u16(duty)
+        for duty in range(65_536,0, -1):
+            green_pwm_pin.duty_u16(duty)
+
+    elif signal == "sendingFeeds":
+        for _ in range (2):
+            for duty in range(0,65_536, 5):
+                green_pwm_pin.duty_u16(duty)
+            for duty in range(65_536,0, -5):
+                green_pwm_pin.duty_u16(duty)
+            for duty in range(0,65_536, 5):
+                red_pwm_pin.duty_u16(duty)
+            for duty in range(65_536,0, -5):
+                red_pwm_pin.duty_u16(duty)
+
+    elif signal == "open":
+        for _ in range (3):
+            for duty in range(0,65_536, 5):
+                green_pwm_pin.duty_u16(duty)
+            for duty in range(65_536,0, -5):
+                green_pwm_pin.duty_u16(duty)
+    elif signal == "close":
+        for _ in range (3):
+            for duty in range(0,65_536, 5):
+                red_pwm_pin.duty_u16(duty)
+            for duty in range(65_536,0, -5):
+                red_pwm_pin.duty_u16(duty)
+
 #Load variables saved in memory
 loadForecast()
 loadWindowsStatus()
 loadActionMsg()
 
 # Try WiFi Connection, write error code if exception happens
-try:
-    ip = wifiConnection.connect()
-except KeyboardInterrupt:
-    print("Keyboard interrupt")
-except Exception as e:
-    print("Failed to connect to WiFi:", e)
-
-# Use the MQTT protocol to connect to Adafruit IO
-client = MQTTClient(keys.AIO_CLIENT_ID, keys.AIO_SERVER, keys.AIO_PORT, keys.AIO_USER, keys.AIO_KEY)
+def connectToWifi():
+    try:
+        ip = wifiConnection.connect()
+        if ip:
+            print("Connected to Wi-Fi. IP:", ip)
+            ledSignal("connectedToWifi")
+            return True
+        else:
+            print("Failed to obtain IP address.")
+            ledSignal("noConnection")
+            led.off()
+            return False
+    except KeyboardInterrupt:
+        print("Keyboard interrupt")
+        return False
+    except Exception as e:
+        print("Failed to connect to WiFi:", e)
+        return False
 
 """When a message is received, we check from which topic, then proceed to 
 decode and save the variable. The Red-green LED is used to visually signal
@@ -111,48 +169,35 @@ def on_message(topic, msg):
         global forecast 
         forecast = float(decoded_string)
         saveForecast(forecast)
-        #Red LED fades in and out
-        for duty in range(0,65_536, 1):
-            red_pwm_pin.duty_u16(duty)
-        for duty in range(65_536,0, -1):
-            red_pwm_pin.duty_u16(duty)
+        #Green LED fades in and out
+        ledSignal ("receiving")
         print(forecast)
     
     if topic == b'h_kenshin21/feeds/outtemp':
         decoded_string = msg.decode('utf-8')
         global latestOutTemp 
         latestOutTemp = float(decoded_string)
-        #Green LED fades in and out
-        for duty in range(0,65_536, 1):
-            green_pwm_pin.duty_u16(duty)
-        for duty in range(65_536,0, -1):
-            green_pwm_pin.duty_u16(duty)
+        #Red LED fades in and out
+        ledSignal("receiving")
         print(latestOutTemp)
     
     if topic == b'h_kenshin21/feeds/winisopen':
         decoded_string = msg.decode('utf-8')
+        ledSignal("receiving")
         global windowIsOpen
         if decoded_string == "True":
             windowIsOpen = True
+            ledSignal("open")
         else:
             windowIsOpen = False
+            ledSignal("close")
         saveWindowsStatus(decoded_string)
         #Red LED fades in and out then green LED fades in and out
-        for duty in range(0,65_536, 5):
-            red_pwm_pin.duty_u16(duty)
-        for duty in range(65_536,0, -5):
-            red_pwm_pin.duty_u16(duty)
-        for duty in range(0,65_536, 5):
-            green_pwm_pin.duty_u16(duty)
-        for duty in range(65_536,0, -5):
-            green_pwm_pin.duty_u16(duty)
+        ledSignal("w")
+
         print("Window is open: ", windowIsOpen)
 
     return
-"""Set the callback function, basically it says
-"run the function on_message() when a message arrives
-this is defined in the imoported code from mqtt.py"""
-client.set_callback(on_message)
 
 """Gets temperature and humidity, returns both. 
 In python you can have one function return several variables """
@@ -204,16 +249,13 @@ def send_data(tempFeed, tempData, humFeed, humData):
     global RANDOMS_INTERVAL
 
     if ((time.ticks_ms() - last_random_sent_ticks) < RANDOMS_INTERVAL):
-        #print("time to next still under 300000", (time.ticks_ms() - last_random_sent_ticks))
+        print("to soon, time elapsed since last feed, in ms:", (time.ticks_ms() - last_random_sent_ticks))
         return; # Too soon since last one sent.
-
     print("Publishing:\n {0} degrees celcius to {1} and \n {2} percent humidity to {3}... ".format(tempData, tempFeed, humData, humFeed), end='')
     try:
         client.publish(topic=tempFeed, msg=str(tempData))
         client.publish(topic=humFeed, msg=str(humData))
-        led.on()
-        time.sleep(1)
-        led.off()
+        ledSignal("sendingFeeds")
         print("DONE")
         
     except Exception as e:
@@ -222,33 +264,56 @@ def send_data(tempFeed, tempData, humFeed, humData):
         last_random_sent_ticks = time.ticks_ms()
 
 def connectAndSend():
-    # Subscribed messages will be delivered to this callback
     global client
-    client.connect()
-    # subscribe to weather data
-    client.subscribe(keys.AIO_SUBSCRIBE_TO_SMHI)
-    client.subscribe(keys.AIO_SUBSCRIBE_TO_OUTTEMP)
-    client.subscribe(keys.AIO_SUBSCRIBE_TO_WINSTATUS)
-    
-    try:                     # Code between try: and finally: may cause an error
-                            # so ensure the client disconnects the server if
-                            # that happens.
-        while True:         # Repeat this loop forever
-            tempData, humData = getReadings()
-            send_data(keys.AIO_IN_TEMP_FEED, tempData, keys.AIO_IN_HUMIDITY_FEED, humData) # Send temperature and humidity to Adafruit
-            client.check_msg()
-            sendActionMsg(keys.AIO_ACTION_MSG_FEED)
-            time.sleep(15)
-    #Handle OSError and make automatic reconnection
-    except OSError as e:
-        print("MQTT Connection error:", e)
-        time.sleep(10)  # Wait before attempting to reconnect
-        connectAndSend()  # Attempt to reconnect recursively
+    while True:
+        #connec to wifi
+        if connectToWifi():
+            led.on()
+            try:
+                # Use the MQTT protocol to connect to Adafruit IO
+                if client is None:
+                    client = MQTTClient(keys.AIO_CLIENT_ID, keys.AIO_SERVER, keys.AIO_PORT, keys.AIO_USER, keys.AIO_KEY)
+                    """Set the callback function, basically it says
+                    "run the function on_message() when a message arrives
+                    this is defined in the imported code from mqtt.py"""
+                    client.set_callback(on_message)
+                    # Subscribed messages will be delivered to this callback
+                    # Attempt to connect to Adafruit IO MQTT server
+                try:
+                    client.connect()
+                    print("Connected to Adafruit IO.")
+                    # subscribe to weather data
+                    client.subscribe(keys.AIO_SUBSCRIBE_TO_SMHI)
+                    client.subscribe(keys.AIO_SUBSCRIBE_TO_OUTTEMP)
+                    client.subscribe(keys.AIO_SUBSCRIBE_TO_WINSTATUS)
 
-    finally:                  # If an exception is thrown ...
-        client.disconnect()   # ... disconnect the client and clean up.
-        client = None
-        wifiConnection.disconnect()
-        print("Disconnected from Adafruit IO.")
-        
+                except Exception as e:
+                    print("MQTT Connection error:", e)
+                    break # Exit to reconnect
+
+                while True:
+                    try:     
+                        tempData, humData = getReadings()
+                        send_data(keys.AIO_IN_TEMP_FEED, tempData, keys.AIO_IN_HUMIDITY_FEED, humData) # Send temperature and humidity to Adafruit
+                        client.check_msg()
+                        sendActionMsg(keys.AIO_ACTION_MSG_FEED)
+                        time.sleep(1)
+                    #Handle OSError and make automatic reconnection
+                    except OSError as e:
+                        print("MQTT Connection error:", e)
+                        break  # Exit the inner loop to reconnect
+            except Exception as e:
+                print("Error in main loop:", e)
+
+            finally:                  # If an exception is thrown ...           
+                try:
+                    client.disconnect()   # Disconnect from Adafruit IO
+                    print("Disconnected from Adafruit IO.")
+                except Exception as e:
+                    print("Error during MQTT disconnect:", e)
+        #else from --> If connectToWifi():
+        else:
+            print("Wi-Fi connection failed. Retrying in 30 seconds...")
+            time.sleep(30)
+
 connectAndSend()
