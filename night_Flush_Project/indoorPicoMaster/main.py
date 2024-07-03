@@ -83,7 +83,7 @@ def loadActionMsg(filename = "actionMsg.txt"):
         #File not found or read error. 
         return 
 
-#Defining different led signals 
+
 def ledSignal(signal):
     #receiving data
     #3 green fade in-out for Wifi
