@@ -17,4 +17,4 @@ We need some external libraries, all are in the repository (so you can just copy
 * <a href= "https://github.com/iot-lnu/applied-iot/blob/master/Pycom%20Micropython%20(esp32)/network-examples/mqtt_ubidots/mqtt.py" >MQTTClient </a>
 * <a href = "https://github.com/iot-lnu/pico-w/tree/main/network-examples/N1_WiFi_Connection"> wifiConnection</a>
  
- 
+A demo can be seen here <a href = "https://youtu.be/jSCFRoGST6Y" >Project demo Youtube</a>
